@@ -5,3 +5,4 @@ pyarabic
 numpy
 scipy
 scikit-learn
+openai
