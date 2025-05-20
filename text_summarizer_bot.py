@@ -39,6 +39,11 @@ TOKEN = os.environ.get("BOT_TOKEN", "8093292228:AAEmQaJ_YTwq99s75O1bHIA0O-LVXWFo
 DEFAULT_LANGUAGE = "arabic"
 # عدد الجمل الافتراضي في التلخيص
 DEFAULT_SENTENCES_COUNT = 3
+# طريقة التلخيص الافتراضية
+DEFAULT_METHOD = "lexrank"
+
+# قاموس لتخزين إعدادات المستخدمين
+user_settings = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """إرسال رسالة عند تنفيذ الأمر /start."""
@@ -67,6 +72,8 @@ async def summarize_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text("الرجاء إدخال النص بعد الأمر. مثال: /summarize 3 النص الذي تريد تلخيصه")
         return
     
+    user_id = update.effective_user.id
+    
     try:
         # محاولة استخراج عدد الجمل من الأمر
         sentences_count = int(context.args[0])
@@ -85,8 +92,13 @@ async def summarize_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     wait_message = await update.message.reply_text("جاري تلخيص النص، يرجى الانتظار...")
     
     try:
+        # تخزين عدد الجمل في إعدادات المستخدم
+        if user_id not in user_settings:
+            user_settings[user_id] = {"method": DEFAULT_METHOD, "sentences": DEFAULT_SENTENCES_COUNT}
+        user_settings[user_id]["sentences"] = sentences_count
+        
         # تلخيص النص
-        summary = await summarize_text(text, sentences_count, context)
+        summary = await summarize_text(text, sentences_count, user_id)
         # إضافة معلومات عن عدد الجمل في الرد
         await wait_message.edit_text(f"التلخيص (عدد الجمل: {sentences_count}):\n\n{summary}")
     except Exception as e:
@@ -97,9 +109,14 @@ async def summarize_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 async def set_method(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """تغيير طريقة التلخيص."""
+    user_id = update.effective_user.id
+    
+    if user_id not in user_settings:
+        user_settings[user_id] = {"method": DEFAULT_METHOD, "sentences": DEFAULT_SENTENCES_COUNT}
+    
     if not context.args:
         # عرض الطريقة الحالية إذا لم يتم تحديد طريقة
-        current_method = context.user_data.get("summarization_method", "lexrank")
+        current_method = user_settings[user_id].get("method", DEFAULT_METHOD)
         await update.message.reply_text(
             f"الطريقة الحالية: {current_method}\n"
             "الرجاء تحديد طريقة التلخيص: lexrank, lsa, أو luhn"
@@ -111,15 +128,17 @@ async def set_method(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await update.message.reply_text("طريقة غير صالحة. الطرق المتاحة: lexrank, lsa, luhn")
         return
     
-    # حفظ طريقة التلخيص في بيانات المستخدم
-    context.user_data["summarization_method"] = method
+    # حفظ طريقة التلخيص في إعدادات المستخدم
+    user_settings[user_id]["method"] = method
+    
     # تسجيل تغيير الطريقة
-    logger.info(f"User {update.effective_user.id} changed summarization method to {method}")
+    logger.info(f"User {user_id} changed summarization method to {method}")
     await update.message.reply_text(f"تم تغيير طريقة التلخيص إلى {method}")
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """التعامل مع الرسائل النصية وتلخيصها."""
     text = update.message.text
+    user_id = update.effective_user.id
     
     if len(text) < 100:
         await update.message.reply_text("النص قصير جدًا للتلخيص. الرجاء إدخال نص أطول (أكثر من 100 حرف).")
