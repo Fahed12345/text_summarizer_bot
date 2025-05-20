@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+import nltk
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from sumy.parsers.plaintext import PlaintextParser
@@ -21,6 +22,15 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+# تحميل بيانات NLTK المطلوبة عند بدء التشغيل
+try:
+    nltk.data.find('tokenizers/punkt')
+    logger.info("NLTK punkt data already downloaded")
+except LookupError:
+    logger.info("Downloading NLTK punkt data...")
+    nltk.download('punkt')
+    logger.info("NLTK punkt data downloaded successfully")
 
 # استخدام التوكن من متغيرات البيئة أو القيمة الافتراضية
 TOKEN = os.environ.get("BOT_TOKEN", "8093292228:AAEmQaJ_YTwq99s75O1bHIA0O-LVXWFoBF4")
