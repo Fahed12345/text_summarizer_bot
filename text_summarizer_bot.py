@@ -81,14 +81,27 @@ async def summarize_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text("الرجاء إدخال نص للتلخيص")
         return
     
-    # تلخيص النص
-    summary = await summarize_text(text, sentences_count, context)
-    await update.message.reply_text(summary)
+    # إرسال رسالة انتظار
+    wait_message = await update.message.reply_text("جاري تلخيص النص، يرجى الانتظار...")
+    
+    try:
+        # تلخيص النص
+        summary = await summarize_text(text, sentences_count, context)
+        await wait_message.edit_text(f"التلخيص (عدد الجمل: {sentences_count}):\n\n{summary}")
+    except Exception as e:
+        logger.error(f"Error summarizing text: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        await wait_message.edit_text("حدث خطأ أثناء تلخيص النص. الرجاء المحاولة مرة أخرى.")
 
 async def set_method(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """تغيير طريقة التلخيص."""
     if not context.args:
-        await update.message.reply_text("الرجاء تحديد طريقة التلخيص: lexrank, lsa, أو luhn")
+        current_method = context.user_data.get("summarization_method", "lexrank")
+        await update.message.reply_text(
+            f"الطريقة الحالية: {current_method}\n"
+            "الرجاء تحديد طريقة التلخيص: lexrank, lsa, أو luhn"
+        )
         return
     
     method = context.args[0].lower()
@@ -97,29 +110,13 @@ async def set_method(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         return
     
     # حفظ طريقة التلخيص في بيانات المستخدم
-    context.user_data["summarization_method"] = method
+    if "summarization_method" not in context.user_data:
+        context.user_data["summarization_method"] = method
+    else:
+        context.user_data.update({"summarization_method": method})
+    
+    logger.info(f"User {update.effective_user.id} changed summarization method to {method}")
     await update.message.reply_text(f"تم تغيير طريقة التلخيص إلى {method}")
-
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """التعامل مع الرسائل النصية وتلخيصها."""
-    text = update.message.text
-    
-    if len(text) < 100:
-        await update.message.reply_text("النص قصير جدًا للتلخيص. الرجاء إدخال نص أطول (أكثر من 100 حرف).")
-        return
-    
-    # إرسال رسالة انتظار
-    wait_message = await update.message.reply_text("جاري تلخيص النص، يرجى الانتظار...")
-    
-    try:
-        # تلخيص النص باستخدام العدد الافتراضي من الجمل
-        summary = await summarize_text(text, DEFAULT_SENTENCES_COUNT, context)
-        await wait_message.edit_text(summary)
-    except Exception as e:
-        logger.error(f"Error summarizing text: {e}")
-        import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
-        await wait_message.edit_text("حدث خطأ أثناء تلخيص النص. الرجاء المحاولة مرة أخرى.")
 
 async def summarize_text(text, sentences_count, context):
     """تلخيص النص باستخدام المكتبة المحددة."""
@@ -133,15 +130,19 @@ async def summarize_text(text, sentences_count, context):
     
     # تحديد طريقة التلخيص (استخدام القيمة المخزنة في بيانات المستخدم أو القيمة الافتراضية)
     method = context.user_data.get("summarization_method", "lexrank")
+    logger.info(f"Using summarization method: {method}")
     
     # إنشاء الملخص المناسب بناءً على الطريقة
     stemmer = Stemmer(language)
     if method == "lsa":
         summarizer = LsaSummarizer(stemmer)
+        logger.info("Using LSA summarizer")
     elif method == "luhn":
         summarizer = LuhnSummarizer(stemmer)
+        logger.info("Using Luhn summarizer")
     else:  # lexrank (الافتراضي)
         summarizer = LexRankSummarizer(stemmer)
+        logger.info("Using LexRank summarizer")
     
     # إضافة كلمات التوقف للغة المحددة
     summarizer.stop_words = get_stop_words(language)
