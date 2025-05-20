@@ -87,6 +87,7 @@ async def summarize_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     try:
         # تلخيص النص
         summary = await summarize_text(text, sentences_count, context)
+        # إضافة معلومات عن عدد الجمل في الرد
         await wait_message.edit_text(f"التلخيص (عدد الجمل: {sentences_count}):\n\n{summary}")
     except Exception as e:
         logger.error(f"Error summarizing text: {e}")
@@ -97,6 +98,7 @@ async def summarize_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 async def set_method(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """تغيير طريقة التلخيص."""
     if not context.args:
+        # عرض الطريقة الحالية إذا لم يتم تحديد طريقة
         current_method = context.user_data.get("summarization_method", "lexrank")
         await update.message.reply_text(
             f"الطريقة الحالية: {current_method}\n"
@@ -110,13 +112,34 @@ async def set_method(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         return
     
     # حفظ طريقة التلخيص في بيانات المستخدم
-    if "summarization_method" not in context.user_data:
-        context.user_data["summarization_method"] = method
-    else:
-        context.user_data.update({"summarization_method": method})
-    
+    context.user_data["summarization_method"] = method
+    # تسجيل تغيير الطريقة
     logger.info(f"User {update.effective_user.id} changed summarization method to {method}")
     await update.message.reply_text(f"تم تغيير طريقة التلخيص إلى {method}")
+
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """التعامل مع الرسائل النصية وتلخيصها."""
+    text = update.message.text
+    
+    if len(text) < 100:
+        await update.message.reply_text("النص قصير جدًا للتلخيص. الرجاء إدخال نص أطول (أكثر من 100 حرف).")
+        return
+    
+    # إرسال رسالة انتظار
+    wait_message = await update.message.reply_text("جاري تلخيص النص، يرجى الانتظار...")
+    
+    try:
+        # الحصول على طريقة التلخيص الحالية
+        method = context.user_data.get("summarization_method", "lexrank")
+        # تلخيص النص باستخدام العدد الافتراضي من الجمل
+        summary = await summarize_text(text, DEFAULT_SENTENCES_COUNT, context)
+        # إضافة معلومات عن طريقة التلخيص في الرد
+        await wait_message.edit_text(f"التلخيص (الطريقة: {method}):\n\n{summary}")
+    except Exception as e:
+        logger.error(f"Error summarizing text: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        await wait_message.edit_text("حدث خطأ أثناء تلخيص النص. الرجاء المحاولة مرة أخرى.")
 
 async def summarize_text(text, sentences_count, context):
     """تلخيص النص باستخدام المكتبة المحددة."""
@@ -157,30 +180,6 @@ async def summarize_text(text, sentences_count, context):
         return "لم أتمكن من تلخيص هذا النص. قد يكون النص قصيرًا جدًا أو غير مناسب للتلخيص."
     
     return summary_text
-
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """التعامل مع الرسائل النصية وتلخيصها."""
-    text = update.message.text
-    
-    if len(text) < 100:
-        await update.message.reply_text("النص قصير جدًا للتلخيص. الرجاء إدخال نص أطول (أكثر من 100 حرف).")
-        return
-    
-    # إرسال رسالة انتظار
-    wait_message = await update.message.reply_text("جاري تلخيص النص، يرجى الانتظار...")
-    
-    try:
-        # تحديد طريقة التلخيص الحالية
-        method = context.user_data.get("summarization_method", "lexrank")
-        
-        # تلخيص النص باستخدام العدد الافتراضي من الجمل
-        summary = await summarize_text(text, DEFAULT_SENTENCES_COUNT, context)
-        await wait_message.edit_text(f"التلخيص (الطريقة: {method}):\n\n{summary}")
-    except Exception as e:
-        logger.error(f"Error summarizing text: {e}")
-        import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
-        await wait_message.edit_text("حدث خطأ أثناء تلخيص النص. الرجاء المحاولة مرة أخرى.")
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """تسجيل الأخطاء وإرسال رسالة للمطور."""
