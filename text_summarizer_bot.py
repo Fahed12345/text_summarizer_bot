@@ -148,19 +148,25 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     wait_message = await update.message.reply_text("جاري تلخيص النص، يرجى الانتظار...")
     
     try:
-        # الحصول على طريقة التلخيص الحالية
-        method = context.user_data.get("summarization_method", "lexrank")
-        # تلخيص النص باستخدام العدد الافتراضي من الجمل
-        summary = await summarize_text(text, DEFAULT_SENTENCES_COUNT, context)
-        # إضافة معلومات عن طريقة التلخيص في الرد
-        await wait_message.edit_text(f"التلخيص (الطريقة: {method}):\n\n{summary}")
+        # التأكد من وجود إعدادات للمستخدم
+        if user_id not in user_settings:
+            user_settings[user_id] = {"method": DEFAULT_METHOD, "sentences": DEFAULT_SENTENCES_COUNT}
+        
+        # الحصول على طريقة التلخيص وعدد الجمل من إعدادات المستخدم
+        method = user_settings[user_id].get("method", DEFAULT_METHOD)
+        sentences_count = user_settings[user_id].get("sentences", DEFAULT_SENTENCES_COUNT)
+        
+        # تلخيص النص
+        summary = await summarize_text(text, sentences_count, user_id)
+        # إضافة معلومات عن طريقة التلخيص وعدد الجمل في الرد
+        await wait_message.edit_text(f"التلخيص (الطريقة: {method}، عدد الجمل: {sentences_count}):\n\n{summary}")
     except Exception as e:
         logger.error(f"Error summarizing text: {e}")
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
         await wait_message.edit_text("حدث خطأ أثناء تلخيص النص. الرجاء المحاولة مرة أخرى.")
 
-async def summarize_text(text, sentences_count, context):
+async def summarize_text(text, sentences_count, user_id):
     """تلخيص النص باستخدام المكتبة المحددة."""
     logger.info(f"Summarizing text of length {len(text)} with {sentences_count} sentences")
     
@@ -170,8 +176,11 @@ async def summarize_text(text, sentences_count, context):
     # إنشاء محلل للنص
     parser = PlaintextParser.from_string(text, Tokenizer(language))
     
-    # تحديد طريقة التلخيص (استخدام القيمة المخزنة في بيانات المستخدم أو القيمة الافتراضية)
-    method = context.user_data.get("summarization_method", "lexrank")
+    # تحديد طريقة التلخيص من إعدادات المستخدم
+    if user_id not in user_settings:
+        user_settings[user_id] = {"method": DEFAULT_METHOD, "sentences": DEFAULT_SENTENCES_COUNT}
+    
+    method = user_settings[user_id].get("method", DEFAULT_METHOD)
     logger.info(f"Using summarization method: {method}")
     
     # إنشاء الملخص المناسب بناءً على الطريقة
