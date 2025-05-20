@@ -2,6 +2,8 @@ import logging
 import os
 import sys
 import nltk
+import openai
+import asyncio
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from sumy.parsers.plaintext import PlaintextParser
@@ -35,12 +37,16 @@ except LookupError:
 # استخدام التوكن من متغيرات البيئة أو القيمة الافتراضية
 TOKEN = os.environ.get("BOT_TOKEN", "8093292228:AAEmQaJ_YTwq99s75O1bHIA0O-LVXWFoBF4")
 
+# تكوين OpenAI API
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+openai.api_key = OPENAI_API_KEY
+
 # تحديد اللغة الافتراضية للتلخيص
 DEFAULT_LANGUAGE = "arabic"
 # عدد الجمل الافتراضي في التلخيص
 DEFAULT_SENTENCES_COUNT = 3
 # طريقة التلخيص الافتراضية
-DEFAULT_METHOD = "lexrank"
+DEFAULT_METHOD = "gpt"
 
 # قاموس لتخزين إعدادات المستخدمين
 user_settings = {}
@@ -61,8 +67,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         'أوامر إضافية:\n'
         '/summarize [عدد الجمل] [النص] - لتلخيص نص مع تحديد عدد الجمل\n'
         'مثال: /summarize 5 هذا هو النص الذي أريد تلخيصه...\n\n'
-        '/method [الطريقة] - لتغيير طريقة التلخيص (lexrank, lsa, luhn)\n'
-        'مثال: /method lsa'
+        '/method [الطريقة] - لتغيير طريقة التلخيص (gpt, lexrank, lsa, luhn)\n'
+        'مثال: /method gpt\n\n'
+        'طريقة gpt توفر تلخيصًا أكثر ترابطًا وفهمًا للسياق.'
     )
     await update.message.reply_text(help_text)
 
@@ -119,13 +126,13 @@ async def set_method(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         current_method = user_settings[user_id].get("method", DEFAULT_METHOD)
         await update.message.reply_text(
             f"الطريقة الحالية: {current_method}\n"
-            "الرجاء تحديد طريقة التلخيص: lexrank, lsa, أو luhn"
+            "الرجاء تحديد طريقة التلخيص: gpt, lexrank, lsa, أو luhn"
         )
         return
     
     method = context.args[0].lower()
-    if method not in ["lexrank", "lsa", "luhn"]:
-        await update.message.reply_text("طريقة غير صالحة. الطرق المتاحة: lexrank, lsa, luhn")
+    if method not in ["gpt", "lexrank", "lsa", "luhn"]:
+        await update.message.reply_text("طريقة غير صالحة. الطرق المتاحة: gpt, lexrank, lsa, luhn")
         return
     
     # حفظ طريقة التلخيص في إعدادات المستخدم
@@ -173,18 +180,23 @@ async def summarize_text(text, sentences_count, user_id):
     """تلخيص النص باستخدام المكتبة المحددة."""
     logger.info(f"Summarizing text of length {len(text)} with {sentences_count} sentences")
     
-    # تحديد اللغة للتوكنايزر
-    language = DEFAULT_LANGUAGE
-    
-    # إنشاء محلل للنص
-    parser = PlaintextParser.from_string(text, Tokenizer(language))
-    
     # تحديد طريقة التلخيص من إعدادات المستخدم
     if user_id not in user_settings:
         user_settings[user_id] = {"method": DEFAULT_METHOD, "sentences": DEFAULT_SENTENCES_COUNT}
     
     method = user_settings[user_id].get("method", DEFAULT_METHOD)
     logger.info(f"Using summarization method: {method}")
+    
+    # استخدام OpenAI GPT للتلخيص
+    if method == "gpt":
+        logger.info("Using GPT summarizer")
+        return await summarize_with_gpt(text, sentences_count)
+    
+    # تحديد اللغة للتوكنايزر
+    language = DEFAULT_LANGUAGE
+    
+    # إنشاء محلل للنص
+    parser = PlaintextParser.from_string(text, Tokenizer(language))
     
     # إنشاء الملخص المناسب بناءً على الطريقة
     stemmer = Stemmer(language)
@@ -194,7 +206,7 @@ async def summarize_text(text, sentences_count, user_id):
     elif method == "luhn":
         summarizer = LuhnSummarizer(stemmer)
         logger.info("Using Luhn summarizer")
-    else:  # lexrank (الافتراضي)
+    else:  # lexrank (الافتراضي إذا لم يكن gpt)
         summarizer = LexRankSummarizer(stemmer)
         logger.info("Using LexRank summarizer")
     
@@ -211,6 +223,57 @@ async def summarize_text(text, sentences_count, user_id):
         return "لم أتمكن من تلخيص هذا النص. قد يكون النص قصيرًا جدًا أو غير مناسب للتلخيص."
     
     return summary_text
+
+async def summarize_with_gpt(text, sentences_count):
+    """تلخيص النص باستخدام OpenAI GPT."""
+    if not OPENAI_API_KEY:
+        return "لم يتم تكوين مفتاح API لـ OpenAI. الرجاء استخدام طريقة تلخيص أخرى."
+    
+    try:
+        # إنشاء طلب إلى OpenAI API
+        prompt = f"""لخص النص التالي في {sentences_count} جمل مترابطة باللغة العربية الفصحى:
+
+{text}
+
+الملخص:"""
+        
+        response = await asyncio.to_thread(
+            openai.ChatCompletion.create,
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "أنت مساعد متخصص في تلخيص النصوص العربية بشكل دقيق ومترابط."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=1024,
+            temperature=0.5
+        )
+        
+        # استخراج الملخص من الرد
+        summary = response.choices[0].message.content.strip()
+        
+        if not summary:
+            return "لم أتمكن من تلخيص هذا النص. حاول مرة أخرى أو استخدم طريقة تلخيص أخرى."
+        
+        return summary
+    
+    except Exception as e:
+        logger.error(f"Error with OpenAI API: {e}")
+        return f"حدث خطأ أثناء استخدام OpenAI API: {str(e)}. حاول استخدام طريقة تلخيص أخرى."
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """إرسال رسالة عند تنفيذ الأمر /help."""
+    help_text = (
+        'كيفية استخدام بوت التلخيص:\n\n'
+        '1. أرسل أي نص تريد تلخيصه\n'
+        '2. سأقوم بتلخيصه إلى 3 جمل افتراضيًا\n\n'
+        'أوامر إضافية:\n'
+        '/summarize [عدد الجمل] [النص] - لتلخيص نص مع تحديد عدد الجمل\n'
+        'مثال: /summarize 5 هذا هو النص الذي أريد تلخيصه...\n\n'
+        '/method [الطريقة] - لتغيير طريقة التلخيص (gpt, lexrank, lsa, luhn)\n'
+        'مثال: /method gpt\n\n'
+        'طريقة gpt توفر تلخيصًا أكثر ترابطًا وفهمًا للسياق.'
+    )
+    await update.message.reply_text(help_text)
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """تسجيل الأخطاء وإرسال رسالة للمطور."""
