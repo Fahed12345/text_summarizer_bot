@@ -156,6 +156,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         method = user_settings[user_id].get("method", DEFAULT_METHOD)
         sentences_count = user_settings[user_id].get("sentences", DEFAULT_SENTENCES_COUNT)
         
+        # تسجيل الإعدادات المستخدمة
+        logger.info(f"User {user_id} using method: {method}, sentences: {sentences_count}")
+        
         # تلخيص النص
         summary = await summarize_text(text, sentences_count, user_id)
         # إضافة معلومات عن طريقة التلخيص وعدد الجمل في الرد
