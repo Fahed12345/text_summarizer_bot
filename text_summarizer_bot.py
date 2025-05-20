@@ -158,6 +158,30 @@ async def summarize_text(text, sentences_count, context):
     
     return summary_text
 
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """التعامل مع الرسائل النصية وتلخيصها."""
+    text = update.message.text
+    
+    if len(text) < 100:
+        await update.message.reply_text("النص قصير جدًا للتلخيص. الرجاء إدخال نص أطول (أكثر من 100 حرف).")
+        return
+    
+    # إرسال رسالة انتظار
+    wait_message = await update.message.reply_text("جاري تلخيص النص، يرجى الانتظار...")
+    
+    try:
+        # تحديد طريقة التلخيص الحالية
+        method = context.user_data.get("summarization_method", "lexrank")
+        
+        # تلخيص النص باستخدام العدد الافتراضي من الجمل
+        summary = await summarize_text(text, DEFAULT_SENTENCES_COUNT, context)
+        await wait_message.edit_text(f"التلخيص (الطريقة: {method}):\n\n{summary}")
+    except Exception as e:
+        logger.error(f"Error summarizing text: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        await wait_message.edit_text("حدث خطأ أثناء تلخيص النص. الرجاء المحاولة مرة أخرى.")
+
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """تسجيل الأخطاء وإرسال رسالة للمطور."""
     logger.error(f"Exception while handling an update: {context.error}")
