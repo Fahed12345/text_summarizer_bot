@@ -169,8 +169,14 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         
         # تلخيص النص
         summary = await summarize_text(text, sentences_count, user_id)
+        
+        # تحديد الطريقة الفعلية المستخدمة (قد تكون تغيرت في حالة فشل GPT)
+        actual_method = method
+        if method == "gpt" and "تعذر استخدام GPT للتلخيص" in summary:
+            actual_method = "lexrank (fallback)"
+        
         # إضافة معلومات عن طريقة التلخيص وعدد الجمل في الرد
-        await wait_message.edit_text(f"التلخيص (الطريقة: {method}، عدد الجمل: {sentences_count}):\n\n{summary}")
+        await wait_message.edit_text(f"التلخيص (الطريقة: {actual_method}، عدد الجمل: {sentences_count}):\n\n{summary}")
     except Exception as e:
         logger.error(f"Error summarizing text: {e}")
         import traceback
@@ -190,8 +196,17 @@ async def summarize_text(text, sentences_count, user_id):
     
     # استخدام OpenAI GPT للتلخيص
     if method == "gpt":
-        logger.info("Using GPT summarizer")
-        return await summarize_with_gpt(text, sentences_count)
+        logger.info("Attempting to use GPT summarizer")
+        gpt_summary = await summarize_with_gpt(text, sentences_count)
+        
+        if gpt_summary:
+            return gpt_summary
+        else:
+            # إذا فشل GPT، استخدم lexrank كبديل
+            logger.info("GPT summarization failed, falling back to lexrank")
+            method = "lexrank"
+            # إعلام المستخدم بالتغيير المؤقت في الطريقة
+            fallback_message = "تعذر استخدام GPT للتلخيص، تم استخدام lexrank كبديل."
     
     # تحديد اللغة للتوكنايزر
     language = DEFAULT_LANGUAGE
@@ -223,12 +238,17 @@ async def summarize_text(text, sentences_count, user_id):
     if not summary_text:
         return "لم أتمكن من تلخيص هذا النص. قد يكون النص قصيرًا جدًا أو غير مناسب للتلخيص."
     
+    # إضافة رسالة التنبيه إذا تم التحويل من GPT إلى طريقة أخرى
+    if method == "lexrank" and 'fallback_message' in locals():
+        summary_text = fallback_message + "\n\n" + summary_text
+    
     return summary_text
 
 async def summarize_with_gpt(text, sentences_count):
     """تلخيص النص باستخدام OpenAI GPT."""
     if not OPENAI_API_KEY:
-        return "لم يتم تكوين مفتاح API لـ OpenAI. الرجاء استخدام طريقة تلخيص أخرى."
+        logger.warning("OpenAI API key not configured, falling back to lexrank")
+        return None
     
     try:
         # إنشاء طلب إلى OpenAI API
@@ -253,13 +273,14 @@ async def summarize_with_gpt(text, sentences_count):
         summary = response.choices[0].message.content.strip()
         
         if not summary:
-            return "لم أتمكن من تلخيص هذا النص. حاول مرة أخرى أو استخدم طريقة تلخيص أخرى."
+            logger.warning("Empty summary returned from GPT, falling back to lexrank")
+            return None
         
         return summary
     
     except Exception as e:
         logger.error(f"Error with OpenAI API: {e}")
-        return f"حدث خطأ أثناء استخدام OpenAI API: {str(e)}. حاول استخدام طريقة تلخيص أخرى."
+        return None
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """إرسال رسالة عند تنفيذ الأمر /help."""
