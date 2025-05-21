@@ -5,5 +5,5 @@ pyarabic
 numpy
 scipy
 scikit-learn
-openai
+openai==0.28
 python-dotenv
